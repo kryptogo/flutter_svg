@@ -28,8 +28,8 @@ class SvgParser {
     for (XmlElement def in defs.toList()) {
       document.children[0].children.insert(0, def.copy());
     }
-    final SvgParserState state =
-        SvgParserState(xml.parseEvents(str), theme, key, warningsAsErrors);
+    final SvgParserState state = SvgParserState(
+        xml.parseEvents(document.toString()), theme, key, warningsAsErrors);
     return await state.parse();
   }
 }
