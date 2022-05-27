@@ -1,3 +1,4 @@
+import 'package:xml/xml.dart';
 import 'package:xml/xml_events.dart' as xml show parseEvents;
 
 import 'src/svg/parser_state.dart';
@@ -22,6 +23,11 @@ class SvgParser {
     String? key,
     bool warningsAsErrors = false,
   }) async {
+    final XmlDocument document = XmlDocument.parse(str);
+    final Iterable<XmlElement> defs = document.findAllElements('defs');
+    for (XmlElement def in defs.toList()) {
+      document.children[0].children.insert(0, def.copy());
+    }
     final SvgParserState state =
         SvgParserState(xml.parseEvents(str), theme, key, warningsAsErrors);
     return await state.parse();
