@@ -23,7 +23,8 @@ class SvgParser {
     String? key,
     bool warningsAsErrors = false,
   }) async {
-    final XmlDocument document = XmlDocument.parse(str);
+    final String pureStr = str.replaceFirst(RegExp(r'^([\w\s]*)\<svg'), '<svg');
+    final XmlDocument document = XmlDocument.parse(pureStr);
     final Iterable<XmlElement> defs = document.findAllElements('defs').toList();
     // document.children[0].children.removeWhere((element){
     // });
