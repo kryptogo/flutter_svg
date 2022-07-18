@@ -8,7 +8,6 @@ import 'package:vector_math/vector_math_64.dart';
 
 import 'render_picture.dart' as render_picture;
 import 'svg/parsers.dart' show affineMatrix;
-import 'svg/xml_parsers.dart';
 
 /// Paint used in masks.
 final Paint _grayscaleDstInPaint = Paint()
@@ -208,19 +207,20 @@ class DrawablePaint {
     assert(a.style == b!.style,
         'Cannot merge Paints with different PaintStyles; got:\na: $a\nb: $b.');
 
+    b = b!;
     return DrawablePaint(
-      a.style ?? b!.style,
-      color: a.color ?? b!.color,
-      shader: a.shader ?? b!.shader,
-      blendMode: a.blendMode ?? b!.blendMode,
-      colorFilter: a.colorFilter ?? b!.colorFilter,
-      isAntiAlias: a.isAntiAlias ?? b!.isAntiAlias,
-      filterQuality: a.filterQuality ?? b!.filterQuality,
-      maskFilter: a.maskFilter ?? b!.maskFilter,
-      strokeCap: a.strokeCap ?? b!.strokeCap,
-      strokeJoin: a.strokeJoin ?? b!.strokeJoin,
-      strokeMiterLimit: a.strokeMiterLimit ?? b!.strokeMiterLimit,
-      strokeWidth: a.strokeWidth ?? b!.strokeWidth,
+      a.style ?? b.style,
+      color: a.color ?? b.color,
+      shader: a.shader ?? b.shader,
+      blendMode: a.blendMode ?? b.blendMode,
+      colorFilter: a.colorFilter ?? b.colorFilter,
+      isAntiAlias: a.isAntiAlias ?? b.isAntiAlias,
+      filterQuality: a.filterQuality ?? b.filterQuality,
+      maskFilter: a.maskFilter ?? b.maskFilter,
+      strokeCap: a.strokeCap ?? b.strokeCap,
+      strokeJoin: a.strokeJoin ?? b.strokeJoin,
+      strokeMiterLimit: a.strokeMiterLimit ?? b.strokeMiterLimit,
+      strokeWidth: a.strokeWidth ?? b.strokeWidth,
     );
   }
 
@@ -231,7 +231,7 @@ class DrawablePaint {
 
   /// Returns whether this paint is null or equivalent to SVG's "none".
   static bool isEmpty(DrawablePaint? paint) {
-    return paint == null || paint == empty;
+    return paint == null || identical(empty, paint) || paint.color == null;
   }
 
   /// The color to use for this paint when stroking or filling a shape.
@@ -326,6 +326,9 @@ class DrawablePaint {
 
   @override
   String toString() {
+    if (identical(this, DrawablePaint.empty)) {
+      return 'DrawablePaint{}';
+    }
     return 'DrawablePaint{$style, color: $color, shader: $shader, blendMode: $blendMode, '
         'colorFilter: $colorFilter, isAntiAlias: $isAntiAlias, filterQuality: $filterQuality, '
         'maskFilter: $maskFilter, strokeCap: $strokeCap, strokeJoin: $strokeJoin, '
@@ -540,12 +543,12 @@ class DrawableText implements Drawable {
     switch (anchor) {
       case DrawableTextAnchorPosition.middle:
         return Offset(
-          offset.dx - paragraph.minIntrinsicWidth / 2,
+          offset.dx - paragraph.longestLine / 2,
           offset.dy - paragraph.alphabeticBaseline,
         );
       case DrawableTextAnchorPosition.end:
         return Offset(
-          offset.dx - paragraph.minIntrinsicWidth,
+          offset.dx - paragraph.longestLine,
           offset.dy - paragraph.alphabeticBaseline,
         );
       case DrawableTextAnchorPosition.start:
@@ -565,6 +568,9 @@ class DrawableDefinitionServer {
   final Map<String, List<Path>> _clipPaths = <String, List<Path>>{};
   final Map<String, DrawableStyleable> _drawables =
       <String, DrawableStyleable>{};
+
+  /// An empty IRI for SVGs.
+  static const String emptyUrlIri = 'url(#)';
 
   /// Attempt to lookup a [Drawable] by [id].
   DrawableStyleable? getDrawable(String id, {bool nullOk = false}) {
@@ -836,6 +842,22 @@ class DrawableViewport {
       'viewBoxOffset: $viewBoxOffset}';
 }
 
+/// Tests whether a [DrawableRoot] should be cache invalidated given old and new
+/// external parameter changes.
+///
+/// For example, an SVG needs to be invalidated if it actually uses `em` units
+/// and the font size changes, but not if it only uses `px` units.
+class CacheCompatibilityTester {
+  /// Creates a tester that always returns true.
+  const CacheCompatibilityTester();
+
+  /// Determine whether a cached [DrawableRoot] should be invalidated given
+  /// old and new data.
+  ///
+  /// By default, the data is always treated as compatible.
+  bool isCompatible(Object oldData, Object newData) => true;
+}
+
 /// The root element of a drawable.
 class DrawableRoot implements DrawableParent {
   /// Creates a new [DrawableRoot].
@@ -847,10 +869,18 @@ class DrawableRoot implements DrawableParent {
     this.style, {
     this.transform,
     this.color,
+    this.compatibilityTester = const CacheCompatibilityTester(),
   });
 
   /// The expected coordinates used by child paths for drawing.
   final DrawableViewport viewport;
+
+  /// Used to test whether ambient parameter changes should invalidate a cached
+  /// version of this drawable.
+  ///
+  /// For example, if the drawable was constructed using an ambient font size
+  /// or color, the tester will return false when the font size or color change.
+  final CacheCompatibilityTester compatibilityTester;
 
   @override
   final String? id;
@@ -921,9 +951,6 @@ class DrawableRoot implements DrawableParent {
     }
 
     if (transform != null) {
-      canvas.restore();
-    }
-    if (viewport.viewBoxOffset != Offset.zero) {
       canvas.restore();
     }
   }
@@ -1261,12 +1288,12 @@ class DrawableShape implements DrawableStyleable {
       if (style.mask != null) {
         canvas.saveLayer(null, Paint());
       }
-      if (style.fill?.style != null) {
+      if (style.fill?.color != null) {
         assert(style.fill!.style == PaintingStyle.fill);
         canvas.drawPath(path, style.fill!.toFlutterPaint());
       }
 
-      if (style.stroke?.style != null) {
+      if (style.stroke?.color != null) {
         assert(style.stroke!.style == PaintingStyle.stroke);
         if (style.dashArray != null &&
             !identical(style.dashArray, DrawableStyle.emptyDashArray)) {

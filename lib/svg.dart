@@ -63,6 +63,7 @@ class Svg {
       picture: pic,
       viewport: svgRoot.viewport.viewBoxRect,
       size: svgRoot.viewport.size,
+      compatibilityTester: svgRoot.compatibilityTester,
     );
   }
 
@@ -96,6 +97,7 @@ class Svg {
       picture: pic,
       viewport: svgRoot.viewport.viewBoxRect,
       size: svgRoot.viewport.size,
+      compatibilityTester: svgRoot.compatibilityTester,
     );
   }
 
@@ -739,6 +741,7 @@ class SvgPicture extends StatefulWidget {
 
 class _SvgPictureState extends State<SvgPicture> {
   PictureInfo? _picture;
+  PictureHandle? _handle;
   PictureStream? _pictureStream;
   bool _isListeningToStream = false;
 
@@ -787,9 +790,15 @@ class _SvgPictureState extends State<SvgPicture> {
         // See: https://api.flutter.dev/flutter/painting/TextStyle/fontSize.html
         14.0;
 
+    final double xHeight = widget.theme?.xHeight ??
+        defaultSvgTheme?.xHeight ??
+        // Fallback to the font size divided by 2.
+        fontSize / 2;
+
     widget.pictureProvider.theme = SvgTheme(
       currentColor: currentColor,
       fontSize: fontSize,
+      xHeight: xHeight,
     );
   }
 
@@ -802,6 +811,8 @@ class _SvgPictureState extends State<SvgPicture> {
 
   void _handleImageChanged(PictureInfo? imageInfo, bool synchronousCall) {
     setState(() {
+      _handle?.dispose();
+      _handle = imageInfo?.createHandle();
       _picture = imageInfo;
     });
   }
@@ -814,8 +825,9 @@ class _SvgPictureState extends State<SvgPicture> {
       return;
     }
 
-    if (_isListeningToStream)
+    if (_isListeningToStream) {
       _pictureStream!.removeListener(_handleImageChanged);
+    }
 
     _pictureStream = newStream;
     if (_isListeningToStream) {
@@ -843,6 +855,8 @@ class _SvgPictureState extends State<SvgPicture> {
   void dispose() {
     assert(_pictureStream != null);
     _stopListeningToStream();
+    _handle?.dispose();
+    _handle = null;
     super.dispose();
   }
 

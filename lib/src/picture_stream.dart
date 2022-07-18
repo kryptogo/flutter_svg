@@ -7,6 +7,7 @@ import 'dart:ui' show Picture, Rect, Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 /// The signature of a method that listens for errors on picture stream resolution.
 typedef PictureErrorListener = void Function(
@@ -28,6 +29,7 @@ class PictureInfo {
     required Picture picture,
     required this.viewport,
     this.size = Size.infinite,
+    required this.compatibilityTester,
   })  : assert(picture != null), // ignore: unnecessary_null_comparison
         assert(viewport != null), // ignore: unnecessary_null_comparison
         assert(size != null), // ignore: unnecessary_null_comparison
@@ -49,18 +51,78 @@ class PictureInfo {
   /// [viewport.size].
   final Size size;
 
+  /// A tester for whether ambienty property changes should invalidate the cache
+  /// for the [Picture].
+  final CacheCompatibilityTester compatibilityTester;
+
   /// Creates a [PictureLayer] that will suitably manage the lifecycle of the
   /// [picture].
+  ///
+  /// This must not be called if all created handles have been disposed.
   PictureLayer createLayer() {
-    return _NonOwningPictureLayer(viewport)
-      ..picture = picture
-      ..isComplexHint = true;
+    assert(picture != null);
+    return _NonOwningComplexPictureLayer(this);
   }
 
-  void _dispose() {
+  final Set<int> _handles = <int>{};
+
+  /// Returns the number of open picture handles on this picture info.
+  ///
+  /// Outside of debug mode, this returns null.
+  int? get debugHandleCount {
+    if (kDebugMode) {
+      return _handles.length;
+    }
+    return null;
+  }
+
+  /// Creates a [PictureHandle] that keeps the [picture] from being disposed.
+  ///
+  /// Once all created handles are disposed, the underlying [picture] must not
+  /// be used again.
+  PictureHandle createHandle() {
+    final PictureHandle handle = PictureHandle._(this);
+    _handles.add(handle._id);
+    return handle;
+  }
+
+  void _disposeHandle(PictureHandle handle) {
+    assert(_handles.isNotEmpty);
     assert(_picture != null);
-    _picture!.dispose();
-    _picture = null;
+    final bool removed = _handles.remove(handle._id);
+    assert(removed);
+    if (_handles.isEmpty) {
+      _picture!.dispose();
+      _picture = null;
+    }
+  }
+}
+
+/// An opaque handle used by [PictureInfo] to track the lifecycle of a
+/// [Picture].
+///
+/// Create handles using [PictureInfo.createHandle]. Dispose of them using
+/// [dispose].
+@immutable
+class PictureHandle {
+  PictureHandle._(this._owner);
+
+  static int _counter = 1;
+  final int _id = _counter++;
+
+  final PictureInfo _owner;
+
+  /// Disposes of this handle. Must not be called more than once.
+  void dispose() {
+    _owner._disposeHandle(this);
+  }
+
+  @override
+  int get hashCode => _id;
+
+  @override
+  bool operator ==(Object other) {
+    return other is PictureHandle && other._id == _id;
   }
 }
 
@@ -199,6 +261,7 @@ class PictureStream with Diagnosticable {
 abstract class PictureStreamCompleter with Diagnosticable {
   final List<_PictureListenerPair> _listeners = <_PictureListenerPair>[];
   PictureInfo? _current;
+  PictureHandle? _handle;
 
   bool _cached = false;
 
@@ -209,7 +272,8 @@ abstract class PictureStreamCompleter with Diagnosticable {
       return;
     }
     if (!value && _listeners.isEmpty) {
-      _current?._dispose();
+      _handle?.dispose();
+      _handle = null;
       _current = null;
     }
     _cached = value;
@@ -247,16 +311,24 @@ abstract class PictureStreamCompleter with Diagnosticable {
       (_PictureListenerPair pair) => pair.listener == listener,
     );
     if (_listeners.isEmpty && !cached) {
-      _current?._dispose();
+      _handle?.dispose();
       _current = null;
+      _handle = null;
     }
+  }
+
+  /// Tests whether the currently set [PictureInfo], if any, is compatible for
+  /// the given theme change.
+  bool isCompatible(SvgTheme oldData, SvgTheme newData) {
+    return _current?.compatibilityTester.isCompatible(oldData, newData) ?? true;
   }
 
   /// Calls all the registered listeners to notify them of a new picture.
   @protected
   void setPicture(PictureInfo? picture) {
-    _current?._dispose();
+    _handle?.dispose();
     _current = picture;
+    _handle = _current?.createHandle();
     if (_listeners.isEmpty) {
       return;
     }
@@ -270,7 +342,10 @@ abstract class PictureStreamCompleter with Diagnosticable {
           listenerPair.errorListener!(exception, stack);
         } else {
           _handleImageError(
-              ErrorDescription('by a picture listener'), exception, stack);
+            ErrorDescription('by a picture listener'),
+            exception,
+            stack,
+          );
         }
       }
     }
@@ -319,8 +394,7 @@ class OneFramePictureStreamCompleter extends PictureStreamCompleter {
   ///
   /// Errors are reported using [FlutterError.reportError] with the `silent`
   /// argument on [FlutterErrorDetails] set to true, meaning that by default the
-  /// message is only dumped to the console in debug mode (see [new
-  /// FlutterErrorDetails]).
+  /// message is only dumped to the console in debug mode (see [FlutterErrorDetails]).
   OneFramePictureStreamCompleter(
     Future<PictureInfo?> picture, {
     InformationCollector? informationCollector,
@@ -339,18 +413,30 @@ class OneFramePictureStreamCompleter extends PictureStreamCompleter {
   }
 }
 
-class _NonOwningPictureLayer extends PictureLayer {
-  _NonOwningPictureLayer(Rect canvasBounds) : super(canvasBounds);
+class _NonOwningComplexPictureLayer extends PictureLayer {
+  _NonOwningComplexPictureLayer(this._owner)
+      : _handle = _owner.createHandle(),
+        super(_owner.viewport);
+
+  final PictureInfo _owner;
+  PictureHandle? _handle;
 
   @override
-  Picture? get picture => _picture;
+  bool get isComplexHint => true;
 
-  Picture? _picture;
+  @override
+  Picture? get picture => _owner.picture;
 
   @override
   set picture(Picture? picture) {
-    markNeedsAddToScene();
-    // Do not dispose the picture, it's owned by the stream/cache.
-    _picture = picture;
+    // Should only get called from dispose.
+    assert(picture == null);
+    assert(_handle != null);
+    if (picture != null) {
+      markNeedsAddToScene();
+    } else {
+      _handle?.dispose();
+      _handle = null;
+    }
   }
 }

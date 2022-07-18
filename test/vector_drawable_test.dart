@@ -62,4 +62,57 @@ void main() {
 
     expect(info.createLayer().isComplexHint, true);
   });
+
+  test('mergeAndBlend gets strokeWidth right', () async {
+    final DrawableRoot root = await svg.fromSvgString(
+      '''
+<svg viewBox="0 0 44 78" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M5 10L20 20L 10 20Z" stroke="white" stroke-width="2" />
+</svg>
+''',
+      'test',
+    );
+
+    final DrawablePaint strokePaintA =
+        (root.children.first as DrawableShape).style.stroke!;
+    final DrawableRoot mergedRoot = root.mergeStyle(
+      const DrawableStyle(
+        stroke: DrawablePaint(
+          PaintingStyle.stroke,
+          color: Color(0xFFABCDEF),
+        ),
+      ),
+    );
+
+    final DrawablePaint strokePaintB =
+        (mergedRoot.children.first as DrawableShape).style.stroke!;
+    expect(strokePaintA.strokeWidth, strokePaintB.strokeWidth);
+  });
+
+  test('restore canvas accordingly', () async {
+    const String svgWithViewBox = '''
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="1 1 15 15">
+  <path/>
+</svg>
+''';
+
+    final PictureRecorder recorder = PictureRecorder();
+    final Canvas canvas = Canvas(recorder);
+
+    canvas.save();
+
+    final DrawableRoot svgRoot = await svg.fromSvgString(
+      svgWithViewBox,
+      'RestoreCanvasWithSvgViewBox',
+    );
+
+    svgRoot.scaleCanvasToViewBox(canvas, const Size.square(200));
+    svgRoot.clipCanvasToViewBox(canvas);
+
+    svgRoot.draw(canvas, svgRoot.viewport.viewBoxRect);
+
+    expect(canvas.getSaveCount(), equals(2));
+
+    recorder.endRecording();
+  });
 }

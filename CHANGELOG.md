@@ -1,5 +1,35 @@
 # CHANGES
 
+## 1.1.0
+
+- Respect stroke* properties when a paint definition is used for a stroke.
+- Respect stroke* properties from groups with no `@stroke` property.
+- Bump package versions.
+
+## 1.0.3+1
+
+- Fix bugs in picture disposal.
+
+## 1.0.3
+
+- Use `longestLine` rather than `minIntrinsicWidth` to place text.
+- Avoid unnecessary painting when a picture doesn't actually change in
+  [RenderPicture].
+
+## 1.0.2
+
+- Avoid cache invalidation when `currentColor` or font based units are not used.
+- Support `rem` units.
+
+## 1.0.1
+
+- Fix bug with incorrect fills in some cases of `<use>` elements.
+- Analysis cleanup of Dart code.
+- Fix bug where self-closing `<g>` tags could alter rendering.
+- Fix bug where an invalid `@stroke-dasharray` could cause an infinite loop.
+- Fix bugs related to nested `<g>` elements in `<defs>`.
+- Remove unnecessary `sync*` related code.
+
 ## 1.0.0
 
 - New widget/RenderObject implementation to avoid rebuilds/paints when
