@@ -878,6 +878,11 @@ class SvgParserState {
     _compatibilityTester = _SvgCompatibilityTester();
     for (XmlEvent event in _readSubtree()) {
       if (event is XmlStartElementEvent) {
+        // for skipping style tag
+        if (event.name == 'style') {
+          _discardSubtree();
+          continue;
+        }
         if (startElement(event)) {
           continue;
         }

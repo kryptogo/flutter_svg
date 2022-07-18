@@ -1,3 +1,4 @@
+import 'package:xml/xml.dart';
 import 'package:xml/xml_events.dart' as xml show parseEvents;
 
 import 'src/svg/parser_state.dart';
@@ -22,8 +23,34 @@ class SvgParser {
     String? key,
     bool warningsAsErrors = false,
   }) async {
-    final SvgParserState state =
-        SvgParserState(xml.parseEvents(str), theme, key, warningsAsErrors);
+    final String pureStr = str.replaceFirst(RegExp(r'^([\w\s]*)\<svg'), '<svg');
+    final XmlDocument document = XmlDocument.parse(pureStr);
+    final Iterable<XmlElement> defs = document.findAllElements('defs').toList();
+    // document.children[0].children.removeWhere((element){
+    // });
+    bool isSvg = false;
+    if (document.children.isNotEmpty) {
+      if (document.children[0] is XmlElement) {
+        if ((document.children[0] as XmlElement).name.toString() == 'svg') {
+          isSvg = true;
+        }
+      }
+    }
+
+    if (isSvg) {
+      document.children[0].children.removeWhere((XmlNode element) {
+        if (element is XmlElement) {
+          return element.name.toString() == 'defs';
+        }
+        return false;
+      });
+      for (XmlElement def in defs) {
+        document.children[0].children.insert(0, def.copy());
+      }
+    }
+
+    final SvgParserState state = SvgParserState(
+        xml.parseEvents(document.toString()), theme, key, warningsAsErrors);
     return await state.parse();
   }
 }
